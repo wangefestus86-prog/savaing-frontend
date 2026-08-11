@@ -20,26 +20,56 @@ const DARK = {
 };
 
 const WHATSAPP_LINK = "https://chat.whatsapp.com/JG1WcF7rqyHFxyIDBCE9Qm";
+const TOKEN_KEY = "njangi_token";
+const MIN_DEPOSIT_LABEL = 100;
+const MIN_WITHDRAW_LABEL = 10000;
+
+const COUNTRY_CODES = [
+  { code: "+237", label: "🇨🇲 +237 Cameroon" },
+  { code: "+234", label: "🇳🇬 +234 Nigeria" },
+  { code: "+233", label: "🇬🇭 +233 Ghana" },
+  { code: "+235", label: "🇹🇩 +235 Chad" },
+  { code: "+236", label: "🇨🇫 +236 CAR" },
+  { code: "+241", label: "🇬🇦 +241 Gabon" },
+  { code: "+242", label: "🇨🇬 +242 Congo" },
+  { code: "+243", label: "🇨🇩 +243 DR Congo" },
+  { code: "+225", label: "🇨🇮 +225 Ivory Coast" },
+  { code: "+221", label: "🇸🇳 +221 Senegal" },
+  { code: "+254", label: "🇰🇪 +254 Kenya" },
+  { code: "+27", label: "🇿🇦 +27 South Africa" },
+  { code: "+33", label: "🇫🇷 +33 France" },
+  { code: "+44", label: "🇬🇧 +44 UK" },
+  { code: "+1", label: "🇺🇸 +1 USA/Canada" },
+];
 
 // This should match the public web address your backend is deployed to
 // (the one that showed {"status":"ok"} when you visited /health).
-// You can also change it from the gear icon on the login screen.
 const DEFAULT_API_BASE = "https://celebrated-eagerness-production-36cb.up.railway.app";
 
 const fmt = (n) => Number(n || 0).toLocaleString("en-US") + " FCFA";
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
+function safeGet(key) {
+  try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+function safeSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) {}
+}
+function safeRemove(key) {
+  try { localStorage.removeItem(key); } catch (_) {}
+}
+
 export default function NjangiApp() {
   const [dark, setDark] = useState(false);
   const C = dark ? DARK : LIGHT;
 
-  const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
-  const [showAuthSettings, setShowAuthSettings] = useState(false);
+  const [apiBase] = useState(DEFAULT_API_BASE);
 
   const [screen, setScreen] = useState("auth");
   const [authMode, setAuthMode] = useState("login");
-  const [token, setToken] = useState(null);
+  const [token, setToken] = useState(() => safeGet(TOKEN_KEY));
+  const [checkingSession, setCheckingSession] = useState(!!safeGet(TOKEN_KEY));
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const [totalDeposited, setTotalDeposited] = useState(0);
@@ -56,10 +86,10 @@ export default function NjangiApp() {
 
   const [login, setLogin] = useState({ id: "", password: "" });
   const [signup, setSignup] = useState({
-    firstName: "", lastName: "", phone: "", email: "", password: "", address: "",
+    firstName: "", lastName: "", countryCode: "+237", phone: "", email: "", password: "", address: "",
   });
-  const [depForm, setDepForm] = useState({ number: "", amount: "", method: "MTN" });
-  const [wdForm, setWdForm] = useState({ amount: "", number: "" });
+  const [depForm, setDepForm] = useState({ countryCode: "+237", number: "", amount: "", method: "MTN" });
+  const [wdForm, setWdForm] = useState({ countryCode: "+237", amount: "", number: "" });
 
   const flash = (msg) => {
     setToast(msg);
@@ -77,9 +107,7 @@ export default function NjangiApp() {
         },
       });
       let data = {};
-      try {
-        data = await res.json();
-      } catch (_) {}
+      try { data = await res.json(); } catch (_) {}
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       return data;
     },
@@ -100,19 +128,31 @@ export default function NjangiApp() {
       setMembers(mem.members);
       setLeaderboard(board.leaderboard);
       setDeposits(dep.deposits);
+      setScreen((s) => (s === "auth" ? "home" : s));
     } catch (e) {
       console.error(e);
+      // Saved session no longer valid - go back to login.
+      safeRemove(TOKEN_KEY);
+      setToken(null);
+      setScreen("auth");
+    } finally {
+      setCheckingSession(false);
     }
   }, [apiFetch]);
 
   useEffect(() => {
-    if (token && screen !== "auth") refreshAll();
+    if (token) refreshAll();
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function persistToken(t) {
+    setToken(t);
+    safeSet(TOKEN_KEY, t);
+  }
 
   async function handleSignup(e) {
     e.preventDefault();
     setErr("");
-    const { firstName, lastName, phone, email, password, address } = signup;
+    const { firstName, lastName, countryCode, phone, email, password, address } = signup;
     if (!firstName || !lastName || !phone || !email || !password || !address) {
       setErr("Please fill in every field.");
       return;
@@ -121,10 +161,9 @@ export default function NjangiApp() {
     try {
       const data = await apiFetch("/api/auth/signup", {
         method: "POST",
-        body: JSON.stringify(signup),
+        body: JSON.stringify({ firstName, lastName, phone: `${countryCode}${phone}`, email, password, address }),
       });
-      setToken(data.token);
-      setScreen("home");
+      persistToken(data.token);
       flash(`Welcome, ${data.user.firstName}. Your account is live.`);
     } catch (e) {
       setErr(e.message);
@@ -146,8 +185,7 @@ export default function NjangiApp() {
         method: "POST",
         body: JSON.stringify({ identifier: login.id, password: login.password }),
       });
-      setToken(data.token);
-      setScreen("home");
+      persistToken(data.token);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -156,6 +194,7 @@ export default function NjangiApp() {
   }
 
   function handleLogout() {
+    safeRemove(TOKEN_KEY);
     setToken(null);
     setUser(null);
     setScreen("auth");
@@ -165,12 +204,12 @@ export default function NjangiApp() {
   }
 
   function openDeposit() {
-    setDepForm({ number: user.phone, amount: "", method: "MTN" });
+    setDepForm({ countryCode: "+237", number: "", amount: "", method: "MTN" });
     setErr("");
     setModal("deposit");
   }
   function openWithdraw() {
-    setWdForm({ amount: "", number: user.phone });
+    setWdForm({ countryCode: "+237", amount: "", number: "" });
     setErr("");
     setModal("withdraw");
   }
@@ -188,7 +227,7 @@ export default function NjangiApp() {
       const path = depForm.method === "MTN" ? "/api/deposits/mtn" : "/api/deposits/orange";
       const data = await apiFetch(path, {
         method: "POST",
-        body: JSON.stringify({ amount: amt, phone: depForm.number }),
+        body: JSON.stringify({ amount: amt, phone: `${depForm.countryCode}${depForm.number}` }),
       });
       setModal(null);
       flash(data.message || "Deposit initiated.");
@@ -234,7 +273,7 @@ export default function NjangiApp() {
     try {
       const data = await apiFetch("/api/withdrawals", {
         method: "POST",
-        body: JSON.stringify({ amount: amt, phone: wdForm.number }),
+        body: JSON.stringify({ amount: amt, phone: `${wdForm.countryCode}${wdForm.number}` }),
       });
       setModal(null);
       flash(data.message || "Withdrawal requested.");
@@ -244,6 +283,14 @@ export default function NjangiApp() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (checkingSession) {
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh" }} className="flex items-center justify-center">
+        <Loader2 size={28} className="spin" style={{ color: C.ink }} />
+      </div>
+    );
   }
 
   return (
@@ -261,7 +308,7 @@ export default function NjangiApp() {
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .pulse-text { animation: pulseText 1.6s ease-in-out infinite; }
-        @keyframes pulseText { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.03); } }
+        @keyframes pulseText { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.03); } }
       `}</style>
 
       {toast && (
@@ -278,14 +325,20 @@ export default function NjangiApp() {
           signup={signup} setSignup={setSignup}
           handleLogin={handleLogin} handleSignup={handleSignup}
           err={err} busy={busy}
-          apiBase={apiBase} setApiBase={setApiBase}
-          showSettings={showAuthSettings} setShowSettings={setShowAuthSettings}
         />
       )}
 
       {screen !== "auth" && user && (
         <div className="max-w-5xl mx-auto pb-24 md:pb-10">
           <Header C={C} user={user} onOpenSettings={() => setModal("settings")} />
+
+          <a
+            href={WHATSAPP_LINK} target="_blank" rel="noreferrer"
+            className="pulse-text mx-4 md:mx-8 mb-3 flex items-center justify-center gap-2 rounded-xl py-2 text-sm font-semibold"
+            style={{ background: C.rowHighlight, color: C.goldDeep }}
+          >
+            <MessageCircle size={16} /> 👋 Join our WhatsApp group
+          </a>
 
           <div className="px-4 md:px-8 mt-2 flex gap-2">
             <NavPill C={C} active={screen === "home"} onClick={() => setScreen("home")} icon={<Home size={16} />} label="Home" />
@@ -324,26 +377,18 @@ export default function NjangiApp() {
                 className="w-11 h-6 rounded-full relative transition-colors"
                 style={{ background: dark ? C.sage : C.line }}
               >
-                <span
-                  className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-                  style={{ left: dark ? "22px" : "2px" }}
-                />
+                <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: dark ? "22px" : "2px" }} />
               </button>
             </div>
 
-            <div>
-              <a
-                href={WHATSAPP_LINK} target="_blank" rel="noreferrer"
-                className="flex items-center justify-between rounded-xl border p-3 text-sm font-medium"
-                style={{ borderColor: C.line }}
-              >
-                <span className="flex items-center gap-2"><MessageCircle size={16} style={{ color: C.sage }} /> Join our WhatsApp community</span>
-                <ChevronRight size={16} style={{ color: C.textMute }} />
-              </a>
-              <p className="pulse-text text-center text-xs font-medium mt-2" style={{ color: C.sage }}>
-                👋 Join our WhatsApp group
-              </p>
-            </div>
+            <a
+              href={WHATSAPP_LINK} target="_blank" rel="noreferrer"
+              className="flex items-center justify-between rounded-xl border p-3 text-sm font-medium"
+              style={{ borderColor: C.line }}
+            >
+              <span className="flex items-center gap-2"><MessageCircle size={16} style={{ color: C.sage }} /> Join our WhatsApp community</span>
+              <ChevronRight size={16} style={{ color: C.textMute }} />
+            </a>
 
             <button
               onClick={handleLogout}
@@ -359,8 +404,10 @@ export default function NjangiApp() {
       {modal === "deposit" && (
         <Modal C={C} title="Make a deposit" onClose={() => setModal(null)}>
           <form onSubmit={submitDeposit} className="space-y-3">
-            <Field C={C} label="Phone number" value={depForm.number} onChange={(v) => setDepForm({ ...depForm, number: v })} />
-            <Field C={C} label="Amount (min. 500 FCFA)" value={depForm.amount} onChange={(v) => setDepForm({ ...depForm, amount: v })} type="number" />
+            <PhoneField C={C} label="Phone number" countryCode={depForm.countryCode}
+              onCountryChange={(v) => setDepForm({ ...depForm, countryCode: v })}
+              phone={depForm.number} onPhoneChange={(v) => setDepForm({ ...depForm, number: v })} />
+            <Field C={C} label={`Amount (min. ${MIN_DEPOSIT_LABEL} FCFA)`} value={depForm.amount} onChange={(v) => setDepForm({ ...depForm, amount: v })} type="number" />
             <div>
               <label className="text-xs font-medium" style={{ color: C.textMute }}>Payment method</label>
               <div className="flex gap-2 mt-1">
@@ -394,8 +441,10 @@ export default function NjangiApp() {
             <p className="text-sm" style={{ color: C.textMute }}>
               Available balance: <strong style={{ color: C.text }}>{fmt(balance)}</strong>
             </p>
-            <Field C={C} label="Amount (min. 2,000 FCFA)" value={wdForm.amount} onChange={(v) => setWdForm({ ...wdForm, amount: v })} type="number" />
-            <Field C={C} label="Phone number to receive funds" value={wdForm.number} onChange={(v) => setWdForm({ ...wdForm, number: v })} />
+            <Field C={C} label={`Amount (min. ${MIN_WITHDRAW_LABEL.toLocaleString()} FCFA)`} value={wdForm.amount} onChange={(v) => setWdForm({ ...wdForm, amount: v })} type="number" />
+            <PhoneField C={C} label="Phone number to receive funds" countryCode={wdForm.countryCode}
+              onCountryChange={(v) => setWdForm({ ...wdForm, countryCode: v })}
+              phone={wdForm.number} onPhoneChange={(v) => setWdForm({ ...wdForm, number: v })} />
             {err && <p className="text-sm flex items-center gap-1" style={{ color: C.rust }}><AlertCircle size={14} /> {err}</p>}
             <button type="submit" disabled={busy} className="w-full py-2.5 rounded-lg font-semibold text-white flex items-center justify-center gap-2" style={{ background: C.rust }}>
               {busy && <Loader2 size={16} className="spin" />} Submit withdrawal
@@ -564,29 +613,39 @@ function Field({ C, label, value, onChange, type = "text" }) {
   );
 }
 
-function AuthScreen({ C, authMode, setAuthMode, login, setLogin, signup, setSignup, handleLogin, handleSignup, err, busy, apiBase, setApiBase, showSettings, setShowSettings }) {
+function PhoneField({ C, label, countryCode, onCountryChange, phone, onPhoneChange }) {
+  return (
+    <div>
+      <label className="text-xs font-medium" style={{ color: C.textMute }}>{label}</label>
+      <div className="flex gap-2 mt-1">
+        <select
+          value={countryCode} onChange={(e) => onCountryChange(e.target.value)}
+          className="px-2 py-2 rounded-lg border text-sm outline-none"
+          style={{ borderColor: C.line, background: C.card, color: C.text, maxWidth: "110px" }}
+        >
+          {COUNTRY_CODES.map((c) => (
+            <option key={c.code} value={c.code}>{c.label}</option>
+          ))}
+        </select>
+        <input
+          type="tel" value={phone} onChange={(e) => onPhoneChange(e.target.value.replace(/\D/g, ""))}
+          placeholder="6XXXXXXXX (no leading 0)"
+          className="flex-1 px-3 py-2 rounded-lg border text-sm outline-none"
+          style={{ borderColor: C.line, background: C.card, color: C.text }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AuthScreen({ C, authMode, setAuthMode, login, setLogin, signup, setSignup, handleLogin, handleSignup, err, busy }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-6 relative">
+        <div className="text-center mb-6">
           <p className="text-xs uppercase tracking-widest" style={{ color: C.goldDeep }}>Njangi Savings</p>
           <h1 className="disp text-3xl font-bold" style={{ color: C.text }}>Save together</h1>
-          <button onClick={() => setShowSettings(!showSettings)} className="absolute right-0 top-0 p-1.5 rounded-full border" style={{ borderColor: C.line, color: C.textMute }}>
-            <Settings size={14} />
-          </button>
         </div>
-
-        {showSettings && (
-          <div className="rounded-xl border p-3 mb-3" style={{ borderColor: C.line, background: C.card }}>
-            <label className="text-xs font-medium" style={{ color: C.textMute }}>Backend web address</label>
-            <input
-              value={apiBase} onChange={(e) => setApiBase(e.target.value.replace(/\/$/, ""))}
-              className="w-full mt-1 px-3 py-2 rounded-lg border text-xs outline-none font-mono"
-              style={{ borderColor: C.line, background: "transparent", color: C.text }}
-              placeholder="https://your-app.up.railway.app"
-            />
-          </div>
-        )}
 
         <div className="rounded-2xl border p-5" style={{ borderColor: C.line, background: C.card }}>
           <div className="flex gap-2 mb-4">
@@ -615,7 +674,9 @@ function AuthScreen({ C, authMode, setAuthMode, login, setLogin, signup, setSign
                 <Field C={C} label="First name" value={signup.firstName} onChange={(v) => setSignup({ ...signup, firstName: v })} />
                 <Field C={C} label="Last name" value={signup.lastName} onChange={(v) => setSignup({ ...signup, lastName: v })} />
               </div>
-              <Field C={C} label="Phone number" value={signup.phone} onChange={(v) => setSignup({ ...signup, phone: v })} />
+              <PhoneField C={C} label="Phone number" countryCode={signup.countryCode}
+                onCountryChange={(v) => setSignup({ ...signup, countryCode: v })}
+                phone={signup.phone} onPhoneChange={(v) => setSignup({ ...signup, phone: v })} />
               <Field C={C} label="Email" type="email" value={signup.email} onChange={(v) => setSignup({ ...signup, email: v })} />
               <Field C={C} label="Password" type="password" value={signup.password} onChange={(v) => setSignup({ ...signup, password: v })} />
               <Field C={C} label="Address" value={signup.address} onChange={(v) => setSignup({ ...signup, address: v })} />
