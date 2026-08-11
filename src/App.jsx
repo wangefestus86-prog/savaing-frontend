@@ -260,6 +260,8 @@ export default function NjangiApp() {
         }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .pulse-text { animation: pulseText 1.6s ease-in-out infinite; }
+        @keyframes pulseText { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.03); } }
       `}</style>
 
       {toast && (
@@ -329,14 +331,19 @@ export default function NjangiApp() {
               </button>
             </div>
 
-            <a
-              href={WHATSAPP_LINK} target="_blank" rel="noreferrer"
-              className="flex items-center justify-between rounded-xl border p-3 text-sm font-medium"
-              style={{ borderColor: C.line }}
-            >
-              <span className="flex items-center gap-2"><MessageCircle size={16} style={{ color: C.sage }} /> Join our WhatsApp community</span>
-              <ChevronRight size={16} style={{ color: C.textMute }} />
-            </a>
+            <div>
+              <a
+                href={WHATSAPP_LINK} target="_blank" rel="noreferrer"
+                className="flex items-center justify-between rounded-xl border p-3 text-sm font-medium"
+                style={{ borderColor: C.line }}
+              >
+                <span className="flex items-center gap-2"><MessageCircle size={16} style={{ color: C.sage }} /> Join our WhatsApp community</span>
+                <ChevronRight size={16} style={{ color: C.textMute }} />
+              </a>
+              <p className="pulse-text text-center text-xs font-medium mt-2" style={{ color: C.sage }}>
+                👋 Join our WhatsApp group
+              </p>
+            </div>
 
             <button
               onClick={handleLogout}
